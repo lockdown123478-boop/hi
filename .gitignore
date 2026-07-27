@@ -1,0 +1,8 @@
+# Supabase local
+supabase/.temp/
+supabase/.branches/
+.env
+.env.*
+
+# Node
+node_modules/

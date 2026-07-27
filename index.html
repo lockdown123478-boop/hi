@@ -1,15 +1,206 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Site</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TbsgBounties</title>
   <style>
-    body { font-family: system-ui, sans-serif; display: grid; place-items: center; height: 100vh; margin: 0; background: #0f172a; color: #e2e8f0; }
-    h1 { font-size: 3rem; }
+    :root{
+      --bg:#0b0f1a; --panel:#141a2b; --panel2:#1b2338; --line:#26304d;
+      --text:#e6ebf5; --muted:#8a94ad; --accent:#5b8cff; --accent2:#3ad29f;
+      --danger:#ff5c72; --warn:#ffb23e; --radius:14px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(1200px 600px at 70% -10%,#182142,transparent),var(--bg);color:var(--text);min-height:100vh}
+    a{color:var(--accent);text-decoration:none}
+    button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:10px 16px;font-weight:600;font-size:14px;transition:.15s}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-primary:hover:not(:disabled){background:#4a7bf0}
+    .btn-green{background:var(--accent2);color:#03251b}
+    .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+    .btn-danger{background:var(--danger);color:#fff}
+    .btn-sm{padding:6px 12px;font-size:13px}
+    input,textarea{width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:14px;font-family:inherit}
+    input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+    label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}
+
+    /* top bar */
+    header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,15,26,.85);backdrop-filter:blur(10px);z-index:20}
+    .logo{font-weight:800;font-size:20px;letter-spacing:.5px}
+    .logo span{color:var(--accent2)}
+    .top-right{display:flex;align-items:center;gap:12px}
+    .balance-chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-weight:700;cursor:pointer;display:flex;gap:8px;align-items:center}
+    .balance-chip small{color:var(--muted);font-weight:500}
+
+    .wrap{max-width:1000px;margin:0 auto;padding:28px 24px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+    .grid{display:grid;gap:16px}
+    .muted{color:var(--muted)}
+    h1,h2,h3{margin:0 0 4px}
+    .pill{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;font-weight:700}
+    .pill-open{background:rgba(58,210,159,.15);color:var(--accent2)}
+    .pill-claimed{background:rgba(255,178,62,.15);color:var(--warn)}
+    .pill-pending{background:rgba(255,178,62,.15);color:var(--warn)}
+    .pill-approved{background:rgba(58,210,159,.15);color:var(--accent2)}
+    .pill-denied{background:rgba(255,92,114,.15);color:var(--danger)}
+    .pill-admin{background:rgba(91,140,255,.18);color:var(--accent)}
+    .price{font-weight:800;color:var(--accent2);font-size:18px}
+
+    /* auth screen */
+    .auth-screen{display:grid;place-items:center;min-height:calc(100vh - 70px);padding:24px}
+    .auth-box{width:100%;max-width:400px}
+    .tabs{display:flex;gap:8px;margin-bottom:16px}
+    .tabs button{flex:1;background:var(--panel2);color:var(--muted)}
+    .tabs button.active{background:var(--accent);color:#fff}
+    .hero-tag{text-align:center;color:var(--muted);margin-bottom:22px;font-size:15px}
+
+    /* modal */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:50;padding:20px}
+    .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:24px;width:100%;max-width:460px;max-height:90vh;overflow:auto}
+    .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .list-item{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);padding:12px 20px;border-radius:10px;z-index:100;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+    .toast.err{border-color:var(--danger)}
+    .toast.ok{border-color:var(--accent2)}
+    .hidden{display:none!important}
+    .empty{text-align:center;padding:40px 20px;color:var(--muted)}
+    .tabbar{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+    .tabbar button{background:var(--panel2);color:var(--muted)}
+    .tabbar button.active{background:var(--panel);color:var(--text);border:1px solid var(--accent)}
+    .stat{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px}
+    .addr-box{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;font-family:monospace;font-size:12px;word-break:break-all;margin-top:6px}
+    code{background:var(--panel2);padding:2px 6px;border-radius:5px;font-size:13px}
   </style>
 </head>
 <body>
-  <h1>Hello, world!</h1>
+  <!-- ============ APP SHELL ============ -->
+  <header id="topbar" class="hidden">
+    <div class="logo">Tbsg<span>Bounties</span></div>
+    <div class="top-right">
+      <div class="balance-chip" id="balanceChip" onclick="openWallet()">
+        <small>Balance</small> <span id="balanceVal">0.00000000</span> LTC
+      </div>
+      <span id="adminBadge" class="pill pill-admin hidden">ADMIN</span>
+      <button class="btn-ghost btn-sm" onclick="signOut()">Sign out</button>
+    </div>
+  </header>
+
+  <!-- ============ AUTH ============ -->
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-box">
+      <div class="logo" style="text-align:center;font-size:30px;margin-bottom:6px">Tbsg<span>Bounties</span></div>
+      <p class="hero-tag">Do TBSG tasks. Claim bounties. Get paid in Litecoin.</p>
+      <div class="card">
+        <div class="tabs">
+          <button id="tabSignin" class="active" onclick="switchAuth('signin')">Sign in</button>
+          <button id="tabSignup" onclick="switchAuth('signup')">Sign up</button>
+        </div>
+        <div id="signupOnly" class="hidden">
+          <label>Username</label>
+          <input id="suUsername" placeholder="Pick a username" autocomplete="off"/>
+        </div>
+        <label>Email</label>
+        <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email"/>
+        <label>Password</label>
+        <input id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password"/>
+        <button class="btn-primary" style="width:100%;margin-top:18px" id="authBtn" onclick="doAuth()">Sign in</button>
+        <p class="muted" style="font-size:12px;text-align:center;margin-top:14px" id="authHint"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MAIN APP ============ -->
+  <div id="app" class="wrap hidden">
+    <div class="tabbar" id="mainTabs">
+      <button class="active" data-view="tasks" onclick="showView('tasks')">Available Tasks</button>
+      <button data-view="mine" onclick="showView('mine')">My Bounties</button>
+      <button data-view="admin" id="adminTabBtn" class="hidden" onclick="showView('admin')">Admin Panel</button>
+    </div>
+
+    <!-- TASKS VIEW -->
+    <div id="view-tasks">
+      <h2>Available Tasks</h2>
+      <p class="muted" style="margin-bottom:18px">Claim a task, complete it, upload proof, and get paid once approved.</p>
+      <div id="taskList" class="grid"></div>
+    </div>
+
+    <!-- MY BOUNTIES VIEW -->
+    <div id="view-mine" class="hidden">
+      <h2>My Bounties</h2>
+      <p class="muted" style="margin-bottom:18px">Tasks you've claimed and your submissions.</p>
+      <div id="myList" class="grid"></div>
+    </div>
+
+    <!-- ADMIN VIEW -->
+    <div id="view-admin" class="hidden">
+      <h2>Admin Panel</h2>
+      <div class="grid" style="margin-top:16px">
+        <div class="card">
+          <h3>Post a new bounty</h3>
+          <label>Title</label>
+          <input id="ntTitle" placeholder="e.g. Record a TBSG clip"/>
+          <label>Description</label>
+          <textarea id="ntDesc" rows="3" placeholder="What needs to be done"></textarea>
+          <label>Price (LTC)</label>
+          <input id="ntPrice" type="number" step="0.00000001" placeholder="0.05"/>
+          <button class="btn-green" style="margin-top:16px" onclick="postTask()">Post Bounty</button>
+        </div>
+
+        <div class="card">
+          <h3>Pending Submissions</h3>
+          <div id="adminSubs" style="margin-top:12px"></div>
+        </div>
+
+        <div class="card">
+          <h3>Pending Withdrawals</h3>
+          <div id="adminWds" style="margin-top:12px"></div>
+        </div>
+
+        <div class="card">
+          <h3>Payout Wallet</h3>
+          <p class="muted" style="font-size:13px">Fund this Litecoin address to cover payouts. Keep only what you need for pending withdrawals.</p>
+          <div id="walletAddrBox" class="addr-box">Not set up yet — deploy the payout function first.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SUBMIT MODAL ============ -->
+  <div id="submitModal" class="modal-bg hidden">
+    <div class="modal">
+      <div class="row"><h3 id="smTitle">Submit proof</h3><button class="btn-ghost btn-sm" onclick="closeModal('submitModal')">✕</button></div>
+      <p class="muted" id="smDesc" style="font-size:13px"></p>
+      <label>Upload proof image</label>
+      <input id="smImage" type="file" accept="image/*"/>
+      <button class="btn-primary" style="width:100%;margin-top:18px" id="smBtn" onclick="submitProof()">Submit for review</button>
+    </div>
+  </div>
+
+  <!-- ============ WALLET / CASHOUT MODAL ============ -->
+  <div id="walletModal" class="modal-bg hidden">
+    <div class="modal">
+      <div class="row"><h3>Your Wallet</h3><button class="btn-ghost btn-sm" onclick="closeModal('walletModal')">✕</button></div>
+      <div class="stat" style="margin:14px 0">
+        <div><div class="muted" style="font-size:12px">Balance</div><div class="price" id="wmBalance">0.00000000 LTC</div></div>
+      </div>
+      <hr style="border-color:var(--line)"/>
+      <h3 style="margin-top:16px">Cash out (Litecoin)</h3>
+      <label>Litecoin address</label>
+      <input id="wmAddress" placeholder="ltc1..."/>
+      <label>Amount (LTC)</label>
+      <input id="wmAmount" type="number" step="0.00000001" placeholder="0.00"/>
+      <button class="btn-green" style="width:100%;margin-top:16px" onclick="requestWithdraw()">Request Cashout</button>
+      <hr style="border-color:var(--line);margin-top:20px"/>
+      <h3 style="margin-top:16px;font-size:15px">Withdrawal history</h3>
+      <div id="wmHistory" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Supabase JS (loaded from CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
 </body>
 </html>
