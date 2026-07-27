@@ -30,8 +30,11 @@
     .logo{font-weight:800;font-size:20px;letter-spacing:.5px}
     .logo span{color:var(--accent2)}
     .top-right{display:flex;align-items:center;gap:12px}
+    .balance-stack{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
     .balance-chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-weight:700;cursor:pointer;display:flex;gap:8px;align-items:center}
     .balance-chip small{color:var(--muted);font-weight:500}
+    .site-avail{font-size:11px;color:var(--muted);padding-right:6px}
+    .site-avail span{color:var(--accent2);font-weight:700}
 
     .wrap{max-width:1000px;margin:0 auto;padding:28px 24px}
     .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
@@ -78,8 +81,13 @@
   <header id="topbar" class="hidden">
     <div class="logo">Tbsg<span>Bounties</span></div>
     <div class="top-right">
-      <div class="balance-chip" id="balanceChip" onclick="openWallet()">
-        <small>Balance</small> <span id="balanceVal">0.00000000</span> LTC
+      <div class="balance-stack">
+        <div class="balance-chip" id="balanceChip" onclick="openWallet()">
+          <small>Balance</small> <span id="balanceVal">0.00000000</span> LTC
+        </div>
+        <div class="site-avail" id="siteAvail" title="Amount the site has available for withdraw">
+          Site available: <span id="siteAvailVal">…</span> LTC
+        </div>
       </div>
       <span id="adminBadge" class="pill pill-admin hidden">ADMIN</span>
       <button class="btn-ghost btn-sm" onclick="signOut()">Sign out</button>

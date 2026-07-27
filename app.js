@@ -115,6 +115,25 @@ function enterApp(){
   showView("tasks");
   loadTasks();
   subscribeRealtime();
+  loadSiteAvailable();
+  setInterval(loadSiteAvailable, 60000); // refresh every minute
+}
+
+// Public on-chain balance of the payout wallet
+async function loadSiteAvailable(){
+  try{
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/wallet-balance`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":`Bearer ${SUPABASE_ANON}` },
+      body:"{}"
+    });
+    const d = await r.json();
+    if(typeof d.balance === "number"){
+      $("siteAvailVal").textContent = d.balance.toFixed(8);
+    } else {
+      $("siteAvailVal").textContent = "—";
+    }
+  }catch(e){ $("siteAvailVal").textContent = "—"; }
 }
 
 // ---------- views ----------
