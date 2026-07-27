@@ -18,6 +18,15 @@ function toast(msg, kind = "") {
   t.className = "toast " + kind;
   setTimeout(() => (t.className = "toast hidden"), 3200);
 }
+function clickToast(msg, onClick){
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast ok";
+  t.style.cursor = "pointer";
+  const handler = ()=>{ onClick(); t.className="toast hidden"; t.style.cursor=""; t.removeEventListener("click",handler); };
+  t.addEventListener("click", handler);
+  setTimeout(()=>{ t.className="toast hidden"; t.style.cursor=""; t.removeEventListener("click",handler); }, 6000);
+}
 function fmt(n) { return Number(n || 0).toFixed(8); }
 function pill(status) {
   const map = { open:"pill-open", claimed:"pill-claimed", completed:"pill-approved",
@@ -171,7 +180,7 @@ async function claimTask(id){
     .update({ status:"claimed", claimed_by: ME.id })
     .eq("id", id).eq("status","open");   // only if still open
   if(error){ return toast(error.message,"err"); }
-  toast("Task claimed! Find it under My Bounties.","ok");
+  clickToast("Task claimed! Click here to check My Bounties →", ()=>showView("mine"));
   loadTasks();
 }
 
@@ -226,19 +235,50 @@ async function submitProof(){
 // ---------- wallet / cashout ----------
 async function refreshMe(){
   const { data } = await sb.from("profiles").select("*").eq("id", ME.id).single();
-  if(data){ ME = data; $("balanceVal").textContent = fmt(ME.balance); }
+  if(data){ ME = data; paintBalance(); }
+}
+
+// keep every balance readout in sync
+function paintBalance(){
+  $("balanceVal").textContent = fmt(ME.balance);
+  if(!$("walletModal").classList.contains("hidden")){
+    $("wmBalance").textContent = fmt(ME.balance) + " LTC";
+  }
 }
 
 async function openWallet(){
   await refreshMe();
   $("wmBalance").textContent = fmt(ME.balance) + " LTC";
-  const { data:wds } = await sb.from("withdrawals").select("*").eq("user_id", ME.id).order("created_at",{ascending:false});
-  $("wmHistory").innerHTML = (wds && wds.length)
-    ? wds.map(w=>`<div class="list-item"><div class="row"><span>${fmt(w.amount)} LTC</span>${pill(w.status)}</div>
-        <div class="muted" style="font-size:12px;margin-top:6px;word-break:break-all">${esc(w.ltc_address)}</div>
-        ${w.txid?`<div class="muted" style="font-size:11px;margin-top:4px">tx: ${esc(w.txid)}</div>`:""}</div>`).join("")
-    : `<p class="muted" style="font-size:13px">No withdrawals yet.</p>`;
+  renderWithdrawHistory();
   $("walletModal").classList.remove("hidden");
+}
+
+async function renderWithdrawHistory(){
+  const { data:wds } = await sb.from("withdrawals").select("*").eq("user_id", ME.id).order("created_at",{ascending:false});
+  if(!wds || !wds.length){
+    $("wmHistory").innerHTML = `<p class="muted" style="font-size:13px">No withdrawals yet.</p>`;
+    return;
+  }
+  const now = Date.now();
+  $("wmHistory").innerHTML = wds.map(w=>{
+    const created = new Date(w.created_at).getTime();
+    const unlockAt = created + 5*60*1000;
+    let cancelUi = "";
+    if(w.status === "pending"){
+      if(now >= unlockAt){
+        cancelUi = `<button class="btn-ghost btn-sm" style="margin-top:8px" onclick="cancelWithdraw('${w.id}')">Cancel & refund</button>`;
+      } else {
+        const mins = Math.ceil((unlockAt - now)/60000);
+        cancelUi = `<div class="muted" style="font-size:11px;margin-top:8px">Can cancel in ~${mins} min</div>`;
+      }
+    }
+    return `<div class="list-item">
+      <div class="row"><span>${fmt(w.amount)} LTC</span>${pill(w.status)}</div>
+      <div class="muted" style="font-size:12px;margin-top:6px;word-break:break-all">${esc(w.ltc_address)}</div>
+      ${w.txid?`<div class="muted" style="font-size:11px;margin-top:4px">tx: ${esc(w.txid)}</div>`:""}
+      ${cancelUi}
+    </div>`;
+  }).join("");
 }
 
 async function requestWithdraw(){
@@ -247,13 +287,23 @@ async function requestWithdraw(){
   if(!addr){ return toast("Enter your LTC address","err"); }
   if(!amount || amount<=0){ return toast("Enter a valid amount","err"); }
   if(amount > Number(ME.balance)){ return toast("Amount exceeds your balance","err"); }
-  const { error } = await sb.from("withdrawals").insert({
-    user_id: ME.id, amount, ltc_address: addr, status:"pending"
-  });
+  // RPC reserves the balance immediately + creates the request atomically
+  const { error } = await sb.rpc("request_withdrawal", { p_amount: amount, p_address: addr });
   if(error){ return toast(error.message,"err"); }
-  toast("Cashout requested! Admin will review it.","ok");
+  toast("Cashout requested! Balance reserved. Admin will review it.","ok");
   $("wmAmount").value=""; $("wmAddress").value="";
-  openWallet();
+  await refreshMe();
+  $("wmBalance").textContent = fmt(ME.balance) + " LTC";
+  renderWithdrawHistory();
+}
+
+async function cancelWithdraw(id){
+  const { error } = await sb.rpc("cancel_withdrawal", { p_id: id });
+  if(error){ return toast(error.message,"err"); }
+  toast("Withdrawal cancelled — funds refunded.","ok");
+  await refreshMe();
+  $("wmBalance").textContent = fmt(ME.balance) + " LTC";
+  renderWithdrawHistory();
 }
 
 // ---------- admin ----------
@@ -340,14 +390,39 @@ async function callFn(name, body, session){
 
 // ---------- realtime (auto-update task board) ----------
 function subscribeRealtime(){
-  sb.channel("public-tasks")
+  sb.channel("rt-main")
+    // task board / my bounties auto-update
     .on("postgres_changes",{ event:"*", schema:"public", table:"tasks" }, ()=>{
       const active = document.querySelector("#mainTabs button.active")?.dataset.view;
       if(active==="tasks") loadTasks();
       if(active==="mine") loadMine();
     })
-    .on("postgres_changes",{ event:"*", schema:"public", table:"profiles", filter:`id=eq.${ME.id}` }, refreshMe)
+    // my balance updates instantly from the pushed row
+    .on("postgres_changes",{ event:"UPDATE", schema:"public", table:"profiles", filter:`id=eq.${ME.id}` }, (payload)=>{
+      if(payload.new){ ME = { ...ME, ...payload.new }; paintBalance(); }
+    })
+    // my submissions status changes → refresh My Bounties
+    .on("postgres_changes",{ event:"*", schema:"public", table:"submissions", filter:`user_id=eq.${ME.id}` }, ()=>{
+      const active = document.querySelector("#mainTabs button.active")?.dataset.view;
+      if(active==="mine") loadMine();
+    })
+    // my withdrawals change → refresh wallet history if open
+    .on("postgres_changes",{ event:"*", schema:"public", table:"withdrawals", filter:`user_id=eq.${ME.id}` }, ()=>{
+      if(!$("walletModal").classList.contains("hidden")) renderWithdrawHistory();
+    })
     .subscribe();
+
+  // admin: live-refresh the admin panel when anything relevant changes
+  if(ME.is_admin){
+    sb.channel("rt-admin")
+      .on("postgres_changes",{ event:"*", schema:"public", table:"submissions" }, ()=>{
+        if(document.querySelector("#mainTabs button.active")?.dataset.view==="admin") loadAdmin();
+      })
+      .on("postgres_changes",{ event:"*", schema:"public", table:"withdrawals" }, ()=>{
+        if(document.querySelector("#mainTabs button.active")?.dataset.view==="admin") loadAdmin();
+      })
+      .subscribe();
+  }
 }
 
 // ---------- util ----------
