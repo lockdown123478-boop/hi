@@ -28,35 +28,49 @@ function pill(status) {
 function closeModal(id){ $(id).classList.add("hidden"); }
 
 // ---------- auth UI ----------
+// Usernames are turned into a hidden internal email so Supabase auth works,
+// but users only ever see username + password.
+const EMAIL_DOMAIN = "tbsgbounties.local";
+function usernameToEmail(username){
+  // normalise: lowercase, strip anything not a-z0-9._-
+  const clean = username.toLowerCase().replace(/[^a-z0-9._-]/g,"");
+  return `${clean}@${EMAIL_DOMAIN}`;
+}
+
 function switchAuth(mode){
   authMode = mode;
   $("tabSignin").classList.toggle("active", mode==="signin");
   $("tabSignup").classList.toggle("active", mode==="signup");
-  $("signupOnly").classList.toggle("hidden", mode!=="signup");
   $("authBtn").textContent = mode==="signin" ? "Sign in" : "Create account";
   $("authHint").textContent = mode==="signup"
     ? "Pick any username. (The owner username unlocks the admin panel.)" : "";
 }
 
 async function doAuth(){
-  const email = $("authEmail").value.trim();
+  const username = $("authUsername").value.trim();
   const password = $("authPassword").value;
-  if(!email || !password){ return toast("Enter email and password","err"); }
+  if(!username || !password){ return toast("Enter username and password","err"); }
+  if(username.replace(/[^a-z0-9._-]/gi,"").length < 3){ return toast("Username must be at least 3 letters/numbers","err"); }
+  const email = usernameToEmail(username);
   $("authBtn").disabled = true;
 
   try{
     if(authMode==="signup"){
-      const username = $("suUsername").value.trim();
-      if(!username) { $("authBtn").disabled=false; return toast("Pick a username","err"); }
       const { error } = await sb.auth.signUp({
         email, password,
         options:{ data:{ username } }
       });
       if(error) throw error;
-      toast("Account created! Signing you in…","ok");
+      // some projects still require confirmation; try immediate sign-in
+      const { error: siErr } = await sb.auth.signInWithPassword({ email, password });
+      if(siErr) throw siErr;
+      toast("Account created!","ok");
     } else {
       const { error } = await sb.auth.signInWithPassword({ email, password });
-      if(error) throw error;
+      if(error){
+        if(String(error.message).toLowerCase().includes("invalid")) throw new Error("Wrong username or password");
+        throw error;
+      }
     }
     await loadSession();
   }catch(e){ toast(e.message || "Auth failed","err"); }

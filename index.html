@@ -96,12 +96,8 @@
           <button id="tabSignin" class="active" onclick="switchAuth('signin')">Sign in</button>
           <button id="tabSignup" onclick="switchAuth('signup')">Sign up</button>
         </div>
-        <div id="signupOnly" class="hidden">
-          <label>Username</label>
-          <input id="suUsername" placeholder="Pick a username" autocomplete="off"/>
-        </div>
-        <label>Email</label>
-        <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email"/>
+        <label>Username</label>
+        <input id="authUsername" placeholder="Your username" autocomplete="username"/>
         <label>Password</label>
         <input id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password"/>
         <button class="btn-primary" style="width:100%;margin-top:18px" id="authBtn" onclick="doAuth()">Sign in</button>
