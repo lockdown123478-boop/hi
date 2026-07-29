@@ -11,7 +11,11 @@ let authMode = "signin";
 let submitTaskId = null;
 
 // ---------- helpers ----------
-const $ = (id) => document.getElementById(id);
+const $ = (id) => {
+  const el = document.getElementById(id);
+  if(!el) console.error(`[TbsgBounties] missing element: #${id}`);
+  return el;
+};
 function toast(msg, kind = "") {
   const t = $("toast");
   t.textContent = msg;
@@ -83,7 +87,10 @@ async function doAuth(){
       }
     }
     await loadSession();
-  }catch(e){ toast(e.message || "Auth failed","err"); }
+  }catch(e){
+    console.error("[TbsgBounties] auth/session error:", e);
+    toast(e.message || "Auth failed","err");
+  }
   $("authBtn").disabled = false;
 }
 
@@ -171,6 +178,7 @@ function showAuth(){
 
 function showPending(){
   $("authScreen").classList.add("hidden");
+  $("pinScreen").classList.add("hidden");
   $("app").classList.add("hidden");
   $("topbar").classList.add("hidden");
   $("pendingScreen").classList.remove("hidden");
