@@ -193,18 +193,22 @@ function paintFaucet(){
 }
 
 async function claimFaucet(){
-  $("faucetBtn").disabled = true;
-  const { data, error } = await sb.rpc("claim_faucet");
-  if(error){
-    toast(error.message, "err");
+  const btn = $("faucetBtn");
+  if(btn.disabled) return;              // mid-cooldown or already in flight
+  btn.disabled = true;
+  btn.textContent = "Claiming…";
+  try{
+    const { data, error } = await sb.rpc("claim_faucet");
+    if(error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    toast(`Claimed ${fmt(row?.amount ?? FAUCET_AMOUNT)} LTC!`, "ok");
+  }catch(e){
+    // Surface the real reason instead of failing silently.
+    toast(e?.message || "Faucet claim failed", "err");
+  }finally{
     await refreshMe();
-    paintFaucet();
-    return;
+    paintFaucet();                      // always re-derives button state
   }
-  const row = Array.isArray(data) ? data[0] : data;
-  toast(`Claimed ${fmt(row?.amount ?? FAUCET_AMOUNT)} LTC!`, "ok");
-  await refreshMe();
-  paintFaucet();
 }
 
 // Public on-chain balance of the payout wallet
@@ -313,8 +317,9 @@ async function submitProof(){
 
 // ---------- wallet / cashout ----------
 async function refreshMe(){
-  const { data } = await sb.from("profiles").select("*").eq("id", ME.id).single();
-  if(data){ ME = data; paintBalance(); }
+  const { data, error } = await sb.from("profiles").select("*").eq("id", ME.id).single();
+  if(error){ console.error("refreshMe failed:", error); return; }
+  if(data){ ME = data; paintBalance(); paintFaucet(); }
 }
 
 // keep every balance readout in sync
