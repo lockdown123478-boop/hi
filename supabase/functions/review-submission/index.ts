@@ -27,26 +27,30 @@ Deno.serve(async (req) => {
     const { data: me } = await admin.from("profiles").select("is_admin").eq("id", userData.user.id).single();
     if (!me?.is_admin) return json({ error: "Not an admin" }, 403);
 
-    // load submission + its task
-    const { data: sub } = await admin.from("submissions").select("*, tasks(price)").eq("id", submission_id).single();
-    if (!sub) return json({ error: "Submission not found" }, 404);
-    if (sub.status !== "pending") return json({ error: "Already reviewed" }, 400);
+    // All state changes happen inside a single SECURITY DEFINER transaction.
+    // The RPC re-verifies admin, verifies the submitter actually claimed the
+    // task, locks the rows, and credits atomically (no read-modify-write race).
+    // We call it as the requesting user so auth.uid() is correct inside.
+    const asUser = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: `Bearer ${jwt}` } } },
+    );
 
     if (action === "deny") {
-      await admin.from("submissions").update({ status: "denied" }).eq("id", submission_id);
+      const { error } = await asUser.rpc("admin_deny_submission", {
+        p_submission_id: submission_id,
+      });
+      if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
     }
 
-    // approve → credit balance + mark task completed
-    const price = Number(sub.tasks.price);
-    const { data: claimer } = await admin.from("profiles").select("balance").eq("id", sub.user_id).single();
-    const newBalance = Number(claimer.balance) + price;
+    const { data: credited, error } = await asUser.rpc("admin_approve_submission", {
+      p_submission_id: submission_id,
+    });
+    if (error) return json({ error: error.message }, 400);
 
-    await admin.from("profiles").update({ balance: newBalance }).eq("id", sub.user_id);
-    await admin.from("submissions").update({ status: "approved" }).eq("id", submission_id);
-    await admin.from("tasks").update({ status: "completed" }).eq("id", sub.task_id);
-
-    return json({ ok: true, credited: price });
+    return json({ ok: true, credited: Number(credited) });
   } catch (e) {
     return json({ error: String(e?.message ?? e) }, 500);
   }

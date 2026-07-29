@@ -31,7 +31,8 @@ function fmt(n) { return Number(n || 0).toFixed(8); }
 function pill(status) {
   const map = { open:"pill-open", claimed:"pill-claimed", completed:"pill-approved",
     pending:"pill-pending", approved:"pill-approved", denied:"pill-denied",
-    sent:"pill-approved", failed:"pill-denied" };
+    sent:"pill-approved", failed:"pill-denied",
+    processing:"pill-pending", cancelled:"pill-denied" };
   return `<span class="pill ${map[status]||''}">${status}</span>`;
 }
 function closeModal(id){ $(id).classList.add("hidden"); }
@@ -103,6 +104,11 @@ async function loadSession(){
   if(!profile){ toast("Profile not ready, try refreshing","err"); showAuth(); return; }
 
   ME = profile;
+
+  // Unapproved accounts get held at the gate. The server enforces this too
+  // (RLS returns nothing for them) — this screen is just the friendly face.
+  if(!ME.approved){ showPending(); return; }
+
   enterApp();
 }
 
@@ -110,10 +116,33 @@ function showAuth(){
   $("authScreen").classList.remove("hidden");
   $("app").classList.add("hidden");
   $("topbar").classList.add("hidden");
+  $("pendingScreen").classList.add("hidden");
+}
+
+function showPending(){
+  $("authScreen").classList.add("hidden");
+  $("app").classList.add("hidden");
+  $("topbar").classList.add("hidden");
+  $("pendingScreen").classList.remove("hidden");
+  $("pendingUser").textContent = ME.username;
+
+  // Poll for approval so the user gets in without refreshing.
+  if(!window.__approvalPoll){
+    window.__approvalPoll = setInterval(async ()=>{
+      const { data } = await sb.from("profiles").select("*").eq("id", ME.id).single();
+      if(data && data.approved){
+        clearInterval(window.__approvalPoll); window.__approvalPoll = null;
+        ME = data;
+        toast("You've been approved. Welcome!","ok");
+        enterApp();
+      }
+    }, 5000);
+  }
 }
 
 function enterApp(){
   $("authScreen").classList.add("hidden");
+  $("pendingScreen").classList.add("hidden");
   $("app").classList.remove("hidden");
   $("topbar").classList.remove("hidden");
   $("balanceVal").textContent = fmt(ME.balance);
@@ -121,11 +150,61 @@ function enterApp(){
     $("adminBadge").classList.remove("hidden");
     $("adminTabBtn").classList.remove("hidden");
   }
+  // stop the pending-approval poller if we came in via that screen
+  if(window.__approvalPoll){ clearInterval(window.__approvalPoll); window.__approvalPoll = null; }
+
   showView("tasks");
   loadTasks();
   subscribeRealtime();
   loadSiteAvailable();
-  setInterval(loadSiteAvailable, 60000); // refresh every minute
+  paintFaucet();
+
+  // guard against double-entry stacking duplicate timers
+  if(!window.__appTimers){
+    window.__appTimers = true;
+    setInterval(loadSiteAvailable, 60000); // refresh every minute
+    setInterval(paintFaucet, 1000);        // live countdown
+  }
+}
+
+// ---------- faucet ----------
+const FAUCET_AMOUNT = 0.0005;
+const FAUCET_COOLDOWN_MS = 60 * 60 * 1000;
+
+function faucetReadyAt(){
+  if(!ME || !ME.last_faucet_at) return 0;
+  return new Date(ME.last_faucet_at).getTime() + FAUCET_COOLDOWN_MS;
+}
+
+function paintFaucet(){
+  const btn = $("faucetBtn"), note = $("faucetNote");
+  if(!btn) return;
+  const remaining = faucetReadyAt() - Date.now();
+  if(remaining <= 0){
+    btn.disabled = false;
+    btn.textContent = `Claim ${FAUCET_AMOUNT.toFixed(4)} LTC`;
+    note.textContent = "Free every hour.";
+  } else {
+    btn.disabled = true;
+    const m = Math.floor(remaining/60000), s = Math.floor((remaining%60000)/1000);
+    btn.textContent = `Next claim in ${m}:${String(s).padStart(2,"0")}`;
+    note.textContent = "You've already claimed this hour.";
+  }
+}
+
+async function claimFaucet(){
+  $("faucetBtn").disabled = true;
+  const { data, error } = await sb.rpc("claim_faucet");
+  if(error){
+    toast(error.message, "err");
+    await refreshMe();
+    paintFaucet();
+    return;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  toast(`Claimed ${fmt(row?.amount ?? FAUCET_AMOUNT)} LTC!`, "ok");
+  await refreshMe();
+  paintFaucet();
 }
 
 // Public on-chain balance of the payout wallet
@@ -264,7 +343,9 @@ async function renderWithdrawHistory(){
     const created = new Date(w.created_at).getTime();
     const unlockAt = created + 5*60*1000;
     let cancelUi = "";
-    if(w.status === "pending"){
+    if(w.status === "processing"){
+      cancelUi = `<div class="muted" style="font-size:11px;margin-top:8px">Sending on-chain — cannot cancel</div>`;
+    } else if(w.status === "pending"){
       if(now >= unlockAt){
         cancelUi = `<button class="btn-ghost btn-sm" style="margin-top:8px" onclick="cancelWithdraw('${w.id}')">Cancel & refund</button>`;
       } else {
@@ -321,6 +402,7 @@ async function postTask(){
 
 async function loadAdmin(){
   if(!ME.is_admin) return;
+  loadUsers();
   // pending submissions with task + user info
   const { data:subs } = await sb.from("submissions").select("*, tasks(title,price), profiles(username)").eq("status","pending").order("created_at");
   $("adminSubs").innerHTML = (subs && subs.length) ? subs.map(s=>`
@@ -347,6 +429,61 @@ async function loadAdmin(){
     </div>`).join("") : `<p class="muted" style="font-size:13px">No pending withdrawals.</p>`;
 
   loadWalletAddress();
+}
+
+// ---------- admin: users + approvals ----------
+async function loadUsers(){
+  const { data, error } = await sb.rpc("admin_list_users");
+  if(error){
+    $("adminPending").innerHTML = `<p class="muted" style="font-size:13px">Error: ${esc(error.message)}</p>`;
+    $("adminUsers").innerHTML = "";
+    return;
+  }
+  const users   = data || [];
+  const pending = users.filter(u=>!u.approved);
+  const badge   = $("pendingCount");
+
+  badge.textContent = pending.length;
+  badge.classList.toggle("hidden", pending.length === 0);
+
+  $("adminPending").innerHTML = pending.length ? pending.map(u=>`
+    <div class="list-item">
+      <div class="row">
+        <strong>${esc(u.username)}</strong>
+        <span class="muted" style="font-size:12px">${new Date(u.created_at).toLocaleString()}</span>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn-green btn-sm"  onclick="setApproval('${u.id}',true)">Approve</button>
+        <button class="btn-danger btn-sm" onclick="setApproval('${u.id}',false)">Reject</button>
+      </div>
+    </div>`).join("") : `<p class="muted" style="font-size:13px">No sign-ups waiting.</p>`;
+
+  $("adminUsers").innerHTML = users.length ? users.map(u=>`
+    <div class="list-item">
+      <div class="row">
+        <span>
+          <strong>${esc(u.username)}</strong>
+          ${u.is_admin ? `<span class="pill pill-approved" style="margin-left:6px">admin</span>` : ""}
+          ${u.approved ? "" : `<span class="pill pill-pending" style="margin-left:6px">pending</span>`}
+        </span>
+        <span class="price">${fmt(u.balance)} LTC</span>
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:6px">
+        joined ${new Date(u.created_at).toLocaleDateString()}
+        ${u.last_faucet_at ? ` · last faucet ${new Date(u.last_faucet_at).toLocaleString()}` : ""}
+      </div>
+      ${u.is_admin ? "" : `<button class="btn-ghost btn-sm" style="margin-top:8px"
+          onclick="setApproval('${u.id}',${!u.approved})">
+          ${u.approved ? "Revoke access" : "Approve"}
+        </button>`}
+    </div>`).join("") : `<p class="muted" style="font-size:13px">No users yet.</p>`;
+}
+
+async function setApproval(userId, approved){
+  const { error } = await sb.rpc("admin_set_approval", { p_user_id:userId, p_approved:approved });
+  if(error){ return toast(error.message,"err"); }
+  toast(approved ? "User approved" : "Access revoked","ok");
+  loadUsers();
 }
 
 // Approving a submission credits the claimer's balance (done via edge function for safety)
@@ -390,6 +527,15 @@ async function callFn(name, body, session){
 
 // ---------- realtime (auto-update task board) ----------
 function subscribeRealtime(){
+  // enterApp() can run twice (e.g. pending → approved without a reload).
+  // Channels must be torn down before re-registering handlers, otherwise
+  // `.on()` throws "cannot add postgres_changes callbacks after subscribe()".
+  sb.getChannels().forEach(ch=>{
+    if(ch.topic === "realtime:rt-main" || ch.topic === "realtime:rt-admin"){
+      sb.removeChannel(ch);
+    }
+  });
+
   sb.channel("rt-main")
     // task board / my bounties auto-update
     .on("postgres_changes",{ event:"*", schema:"public", table:"tasks" }, ()=>{
@@ -399,7 +545,16 @@ function subscribeRealtime(){
     })
     // my balance updates instantly from the pushed row
     .on("postgres_changes",{ event:"UPDATE", schema:"public", table:"profiles", filter:`id=eq.${ME.id}` }, (payload)=>{
-      if(payload.new){ ME = { ...ME, ...payload.new }; paintBalance(); }
+      if(!payload.new) return;
+      const wasApproved = ME.approved;
+      ME = { ...ME, ...payload.new };
+      paintBalance();
+      paintFaucet();
+      // access revoked mid-session → kick straight back to the gate
+      if(wasApproved && !ME.approved){
+        toast("Your access has been revoked.","err");
+        showPending();
+      }
     })
     // my submissions status changes → refresh My Bounties
     .on("postgres_changes",{ event:"*", schema:"public", table:"submissions", filter:`user_id=eq.${ME.id}` }, ()=>{
@@ -420,6 +575,10 @@ function subscribeRealtime(){
       })
       .on("postgres_changes",{ event:"*", schema:"public", table:"withdrawals" }, ()=>{
         if(document.querySelector("#mainTabs button.active")?.dataset.view==="admin") loadAdmin();
+      })
+      // new sign-ups appear in the approval queue live
+      .on("postgres_changes",{ event:"*", schema:"public", table:"profiles" }, ()=>{
+        if(document.querySelector("#mainTabs button.active")?.dataset.view==="admin") loadUsers();
       })
       .subscribe();
   }

@@ -28,21 +28,32 @@ Deno.serve(async (req) => {
     const { data: me } = await admin.from("profiles").select("is_admin").eq("id", userData.user.id).single();
     if (!me?.is_admin) return json({ error: "Not an admin" }, 403);
 
-    const { data: wd } = await admin.from("withdrawals").select("*").eq("id", withdrawal_id).single();
-    if (!wd) return json({ error: "Withdrawal not found" }, 404);
-    if (wd.status !== "pending") return json({ error: "Already reviewed" }, 400);
+    // Call RPCs as the requesting user so auth.uid() resolves inside them.
+    const asUser = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: `Bearer ${jwt}` } } },
+    );
 
     // NOTE: balance was already reserved (deducted) when the user requested.
     if (action === "deny") {
-      // refund the reserved amount
-      const { data: u } = await admin.from("profiles").select("balance").eq("id", wd.user_id).single();
-      await admin.from("profiles").update({ balance: Number(u.balance) + Number(wd.amount) }).eq("id", wd.user_id);
-      await admin.from("withdrawals").update({ status: "denied" }).eq("id", withdrawal_id);
+      const { error } = await asUser.rpc("admin_refund_withdrawal", {
+        p_id: withdrawal_id,
+        p_status: "denied",
+      });
+      if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
     }
 
     const wif = Deno.env.get("LTC_PRIVATE_KEY_WIF");
     if (!wif) return json({ error: "Wallet not configured" }, 400);
+
+    // Atomically flip pending -> processing. Only ONE caller can win this
+    // race, so a double-click can never broadcast two on-chain sends.
+    const { data: wd, error: lockErr } = await asUser.rpc("admin_lock_withdrawal", {
+      p_id: withdrawal_id,
+    });
+    if (lockErr || !wd) return json({ error: lockErr?.message ?? "Already reviewed" }, 400);
 
     // send on-chain (balance already reserved, so we do NOT deduct again)
     let txid: string;
@@ -50,13 +61,25 @@ Deno.serve(async (req) => {
       txid = await sendLitecoin(wif, wd.ltc_address, Number(wd.amount));
     } catch (e) {
       // send failed → refund the reservation so the user isn't out of pocket
-      const { data: u } = await admin.from("profiles").select("balance").eq("id", wd.user_id).single();
-      await admin.from("profiles").update({ balance: Number(u.balance) + Number(wd.amount) }).eq("id", wd.user_id);
-      await admin.from("withdrawals").update({ status: "failed" }).eq("id", withdrawal_id);
+      await asUser.rpc("admin_refund_withdrawal", {
+        p_id: withdrawal_id,
+        p_status: "failed",
+      });
       return json({ error: "Send failed (refunded): " + String(e?.message ?? e) }, 500);
     }
 
-    await admin.from("withdrawals").update({ status: "sent", txid }).eq("id", withdrawal_id);
+    const { error: doneErr } = await asUser.rpc("admin_complete_withdrawal", {
+      p_id: withdrawal_id,
+      p_txid: txid,
+    });
+    // The coin is already sent; a bookkeeping failure here must be loud.
+    if (doneErr) {
+      return json({
+        ok: true,
+        txid,
+        warning: "SENT ON-CHAIN but failed to mark as sent — reconcile manually: " + doneErr.message,
+      });
+    }
     return json({ ok: true, txid });
   } catch (e) {
     return json({ error: String(e?.message ?? e) }, 500);

@@ -114,6 +114,23 @@
     </div>
   </div>
 
+  <!-- ============ PENDING APPROVAL ============ -->
+  <div id="pendingScreen" class="auth-screen hidden">
+    <div class="auth-box">
+      <div class="logo" style="text-align:center;font-size:30px;margin-bottom:6px">Tbsg<span>Bounties</span></div>
+      <div class="card" style="text-align:center">
+        <h3 style="margin-bottom:10px">Waiting for approval</h3>
+        <p class="muted" style="font-size:14px;line-height:1.6">
+          Thanks for signing up, <strong id="pendingUser"></strong>.<br/>
+          Your account needs to be approved by an admin before you can
+          view or claim bounties. This page updates automatically.
+        </p>
+        <div class="muted" style="font-size:12px;margin-top:18px">Checking every few seconds…</div>
+        <button class="btn-ghost btn-sm" style="margin-top:18px" onclick="signOut()">Sign out</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ MAIN APP ============ -->
   <div id="app" class="wrap hidden">
     <div class="tabbar" id="mainTabs">
@@ -124,6 +141,16 @@
 
     <!-- TASKS VIEW -->
     <div id="view-tasks">
+      <div class="card" style="margin-bottom:22px">
+        <div class="row">
+          <div>
+            <h3 style="margin:0">Hourly Faucet</h3>
+            <p class="muted" style="font-size:13px;margin:6px 0 0" id="faucetNote">Free every hour.</p>
+          </div>
+          <button class="btn-green btn-sm" id="faucetBtn" onclick="claimFaucet()">Claim 0.0005 LTC</button>
+        </div>
+      </div>
+
       <h2>Available Tasks</h2>
       <p class="muted" style="margin-bottom:18px">Claim a task, complete it, upload proof, and get paid once approved.</p>
       <div id="taskList" class="grid"></div>
@@ -149,6 +176,17 @@
           <label>Price (LTC)</label>
           <input id="ntPrice" type="number" step="0.00000001" placeholder="0.05"/>
           <button class="btn-green" style="margin-top:16px" onclick="postTask()">Post Bounty</button>
+        </div>
+
+        <div class="card">
+          <h3>Pending Sign-ups <span id="pendingCount" class="pill pill-pending hidden">0</span></h3>
+          <p class="muted" style="font-size:13px">New accounts can't see or claim anything until you approve them.</p>
+          <div id="adminPending" style="margin-top:12px"></div>
+        </div>
+
+        <div class="card">
+          <h3>All Users</h3>
+          <div id="adminUsers" style="margin-top:12px;max-height:420px;overflow-y:auto"></div>
         </div>
 
         <div class="card">
