@@ -109,7 +109,56 @@ async function loadSession(){
   // (RLS returns nothing for them) — this screen is just the friendly face.
   if(!ME.approved){ showPending(); return; }
 
+  // The owner account needs its PIN before the app opens. This screen is a
+  // convenience: the real enforcement is that verify_admin_pin() is the only
+  // way to learn the PIN is right, and payout RPCs check is_owner() server-side.
+  if(isOwnerAccount() && !pinCleared()){ showPin(); return; }
+
   enterApp();
+}
+
+// ---------- owner PIN gate ----------
+function isOwnerAccount(){
+  return !!ME && String(ME.username||"").toLowerCase() === "snowy";
+}
+// Cleared per browser session only — closing the tab re-locks it.
+function pinCleared(){
+  try{ return sessionStorage.getItem("pin_ok_"+ME.id) === "1"; }catch(e){ return false; }
+}
+function markPinCleared(){
+  try{ sessionStorage.setItem("pin_ok_"+ME.id, "1"); }catch(e){}
+}
+
+function showPin(){
+  $("authScreen").classList.add("hidden");
+  $("pendingScreen").classList.add("hidden");
+  $("app").classList.add("hidden");
+  $("topbar").classList.add("hidden");
+  $("pinScreen").classList.remove("hidden");
+  $("pinInput").value = "";
+  $("pinInput").focus();
+}
+
+async function submitPin(){
+  const pin = $("pinInput").value.trim();
+  if(!pin){ return toast("Enter your PIN","err"); }
+  $("pinBtn").disabled = true;
+  try{
+    const { data, error } = await sb.rpc("verify_admin_pin", { p_pin: pin });
+    if(error) throw error;
+    if(data !== true){
+      $("pinInput").value = "";
+      toast("Incorrect PIN","err");
+      return;
+    }
+    markPinCleared();
+    $("pinScreen").classList.add("hidden");
+    enterApp();
+  }catch(e){
+    toast(e?.message || "PIN check failed","err");
+  }finally{
+    $("pinBtn").disabled = false;
+  }
 }
 
 function showAuth(){
@@ -117,6 +166,7 @@ function showAuth(){
   $("app").classList.add("hidden");
   $("topbar").classList.add("hidden");
   $("pendingScreen").classList.add("hidden");
+  $("pinScreen").classList.add("hidden");
 }
 
 function showPending(){
@@ -143,6 +193,7 @@ function showPending(){
 function enterApp(){
   $("authScreen").classList.add("hidden");
   $("pendingScreen").classList.add("hidden");
+  $("pinScreen").classList.add("hidden");
   $("app").classList.remove("hidden");
   $("topbar").classList.remove("hidden");
   $("balanceVal").textContent = fmt(ME.balance);

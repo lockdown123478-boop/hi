@@ -114,6 +114,24 @@
     </div>
   </div>
 
+  <!-- ============ OWNER PIN ============ -->
+  <div id="pinScreen" class="auth-screen hidden">
+    <div class="auth-box">
+      <div class="logo" style="text-align:center;font-size:30px;margin-bottom:6px">Tbsg<span>Bounties</span></div>
+      <div class="card">
+        <h3 style="margin-bottom:6px;text-align:center">Owner verification</h3>
+        <p class="muted" style="font-size:13px;text-align:center;margin-bottom:16px">
+          Enter your admin PIN to unlock this account.
+        </p>
+        <label>PIN</label>
+        <input id="pinInput" type="password" inputmode="numeric" autocomplete="off"
+               placeholder="••••" onkeydown="if(event.key==='Enter')submitPin()"/>
+        <button class="btn-primary" style="width:100%;margin-top:18px" id="pinBtn" onclick="submitPin()">Unlock</button>
+        <button class="btn-ghost btn-sm" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ PENDING APPROVAL ============ -->
   <div id="pendingScreen" class="auth-screen hidden">
     <div class="auth-box">

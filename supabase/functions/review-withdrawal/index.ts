@@ -21,12 +21,18 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // admin check
+    // OWNER check — payouts move real Litecoin, so this is restricted to the
+    // single owner account, not merely anyone holding is_admin. The RPCs
+    // below re-check is_owner() independently; this is defence in depth.
     const jwt = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
     const { data: userData } = await admin.auth.getUser(jwt);
     if (!userData?.user) return json({ error: "Not authenticated" }, 401);
-    const { data: me } = await admin.from("profiles").select("is_admin").eq("id", userData.user.id).single();
-    if (!me?.is_admin) return json({ error: "Not an admin" }, 403);
+    const { data: me } = await admin
+      .from("profiles").select("username, is_admin, approved")
+      .eq("id", userData.user.id).single();
+    if (!me?.is_admin || !me?.approved || String(me?.username).toLowerCase() !== "snowy") {
+      return json({ error: "Only the owner account may review payouts" }, 403);
+    }
 
     // Call RPCs as the requesting user so auth.uid() resolves inside them.
     const asUser = createClient(

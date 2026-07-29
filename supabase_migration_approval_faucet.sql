@@ -110,6 +110,7 @@ grant execute on function public.is_approved() to authenticated;
 
 -- TASKS: must be approved to see or claim.
 drop policy if exists "anyone logged in can read tasks" on public.tasks;
+drop policy if exists "approved users can read tasks" on public.tasks;
 create policy "approved users can read tasks" on public.tasks
   for select using (public.is_approved() or public.is_admin());
 

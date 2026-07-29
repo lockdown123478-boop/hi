@@ -43,6 +43,7 @@ create trigger guard_profile_cols
 
 -- 3) Re-add a SAFE update policy: a user may update only their own row,
 --    and the trigger above ensures they can't touch balance/is_admin.
+drop policy if exists "update own profile safe" on public.profiles;
 create policy "update own profile safe" on public.profiles
   for update using (auth.uid() = id) with check (auth.uid() = id);
 
